@@ -1,0 +1,16 @@
+{
+  "name": "plan-plus",
+  "owner": {
+    "name": "RandyHaylor"
+  },
+  "metadata": {
+    "description": "Plan-plus: optimized plan mode for Claude Code with lightweight skeletons and focused agents"
+  },
+  "plugins": [
+    {
+      "name": "plan-plus",
+      "source": "./plan-plus",
+      "description": "Auto-restructures plans to lightweight skeletons on exit, mines conversation for context, provides focused executor agent"
+    }
+  ]
+}
