@@ -1,0 +1,14 @@
+{
+  "PostToolUse": [
+    {
+      "matcher": "ExitPlanMode",
+      "hooks": [
+        {
+          "type": "command",
+          "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/restructure-plan.py",
+          "timeout": 30
+        }
+      ]
+    }
+  ]
+}
