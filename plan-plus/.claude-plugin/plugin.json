@@ -1,12 +1,7 @@
 {
   "name": "plan-plus",
-  "version": "0.1.0",
-  "description": "Optimizes Claude Code plan mode: auto-restructures plans to lightweight skeletons on exit, mines conversation for context, provides focused executor agent for step-by-step execution",
+  "description": "Optimizes Claude Code plan mode: auto-restructures plans to lightweight skeletons on exit, mines conversation for context, provides focused executor agent",
   "author": {
     "name": "RandyHaylor"
-  },
-  "license": "MIT",
-  "keywords": ["plan-mode", "optimization", "context-management", "token-efficiency"],
-  "hooks": "./hooks/hooks.json",
-  "agents": ["./agents"]
+  }
 }
