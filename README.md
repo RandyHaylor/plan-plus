@@ -1,7 +1,12 @@
 # plan-plus
 
 **Smarter plan execution for Claude Code.**
-Automatically restructures plans into lightweight skeletons with step-by-step detail files, so your context window stays clean and agents do the heavy lifting.
+
+- Automatically extracts plan steps into individual files when plan mode completes
+- Stores project context, goals, and requirements in dedicated context files
+- Agents read only the step and context files they need, then their context is discarded
+- The main conversation only carries a lightweight skeleton — not the full verbose plan
+- Base plan mode re-injects the entire plan every turn, filling context fast — plan-plus fixes this
 
 ---
 
