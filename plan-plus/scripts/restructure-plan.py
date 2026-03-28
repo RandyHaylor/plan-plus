@@ -264,6 +264,7 @@ def main():
 skeleton: {skeleton_path}
 
 ## Instructions
+- If adding new steps to this plan, create a step file alongside the others in steps/ and add a brief reference line here — do not inline step details in this skeleton
 - Use plan-plus-executor agent for each step — pass the step's detail file + relevant context/ files
 - One agent call per step — do not combine multiple steps into a single agent call
 - Agent context is ephemeral — won't bloat this conversation
