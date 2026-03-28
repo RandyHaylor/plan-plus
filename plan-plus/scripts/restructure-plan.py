@@ -54,18 +54,26 @@ def slugify(text):
     return text[:60] if text else "unnamed"
 
 
+CONTEXT_HEADERS = {"context", "background", "overview", "summary", "introduction", "about"}
+
 def split_plan_into_sections(plan_content):
-    """Split plan on ## headers. Returns (preamble, [(header, content), ...])."""
+    """Split plan on ## headers. Returns (preamble, context_sections, step_sections).
+    Sections whose header is a context-like word go to context, not steps."""
     lines = plan_content.splitlines(keepends=True)
     preamble_lines = []
-    sections = []
+    context_sections = []
+    step_sections = []
     current_header = None
     current_lines = []
 
     for line in lines:
         if re.match(r'^## ', line):
             if current_header is not None:
-                sections.append((current_header, "".join(current_lines).strip()))
+                header_lower = current_header.lower().strip()
+                if header_lower in CONTEXT_HEADERS:
+                    context_sections.append((current_header, "".join(current_lines).strip()))
+                else:
+                    step_sections.append((current_header, "".join(current_lines).strip()))
             current_header = line.strip().lstrip('#').strip()
             current_lines = []
         elif current_header is None:
@@ -74,9 +82,13 @@ def split_plan_into_sections(plan_content):
             current_lines.append(line)
 
     if current_header is not None:
-        sections.append((current_header, "".join(current_lines).strip()))
+        header_lower = current_header.lower().strip()
+        if header_lower in CONTEXT_HEADERS:
+            context_sections.append((current_header, "".join(current_lines).strip()))
+        else:
+            step_sections.append((current_header, "".join(current_lines).strip()))
 
-    return "".join(preamble_lines).strip(), sections
+    return "".join(preamble_lines).strip(), context_sections, step_sections
 
 
 def summarize_section(header, content, max_lines=3):
@@ -188,7 +200,8 @@ def mine_goals(jsonl_path, limit=5):
 
 
 def mine_requirements(jsonl_path):
-    all_text = ""
+    # Only mine recent messages to avoid picking up stale stack references
+    recent_messages = []
     with open(jsonl_path) as f:
         for line in f:
             try:
@@ -200,10 +213,12 @@ def mine_requirements(jsonl_path):
                     parts = [p.get("text", "") for p in content
                              if isinstance(p, dict) and p.get("type") == "text"]
                     content = "\n".join(parts)
-                if isinstance(content, str):
-                    all_text += " " + content[:2000]
+                if isinstance(content, str) and content.strip():
+                    recent_messages.append(content[:2000])
             except (json.JSONDecodeError, KeyError):
                 continue
+    # Only use last 30 messages
+    all_text = " ".join(recent_messages[-30:])
 
     all_lower = all_text.lower()
     parts = []
@@ -266,9 +281,28 @@ def main():
     if plan_basename.startswith("plan-plus--"):
         sys.exit(0)
 
-    # Display name: session name > session ID > "unnamed"
+    # Try to get session topic from JSONL slug field
+    session_topic = ""
+    if transcript_path and os.path.isfile(transcript_path):
+        try:
+            with open(transcript_path) as f:
+                for line in f:
+                    try:
+                        entry = json.loads(line)
+                        slug = entry.get("slug", "")
+                        if slug:
+                            session_topic = slug
+                            break
+                    except (json.JSONDecodeError, KeyError):
+                        continue
+        except Exception:
+            pass
+
+    # Display name: session name > session topic from JSONL > session ID
     if session_name:
         display_name = session_name
+    elif session_topic:
+        display_name = session_topic
     elif session_id:
         display_name = session_id[:12]
     else:
@@ -292,16 +326,22 @@ def main():
     (plan_dir / "plan-full.md").write_text(plan_content, encoding="utf-8")
 
     # Split plan into sections and write step files
-    preamble, sections = split_plan_into_sections(plan_content)
+    preamble, context_sections, step_sections = split_plan_into_sections(plan_content)
 
-    # Write preamble as project context
+    # Write preamble + context sections as project context
+    context_parts = []
     if preamble:
+        context_parts.append(preamble)
+    for header, content in context_sections:
+        context_parts.append(f"## {header}\n\n{content}")
+    if context_parts:
         (context_dir / "project.md").write_text(
-            f"# Project Context\n\n{preamble}\n", encoding="utf-8"
+            f"# Project Context\n\n" + "\n\n".join(context_parts) + "\n",
+            encoding="utf-8",
         )
 
     # Write step files and get skeleton entries
-    step_entries = write_step_files(sections, steps_dir, rel_steps)
+    step_entries = write_step_files(step_sections, steps_dir, rel_steps)
 
     # Write step 0
     step_zero = write_step_zero(steps_dir, rel_steps, rel_dir)
@@ -363,7 +403,7 @@ steps: {rel_dir}/steps/
         plan_path.rename(new_plan_path)
 
     # Output for user and Claude
-    n_steps = len(sections)
+    n_steps = len(step_sections)
     output = {
         "systemMessage": (
             f"plan-plus: split plan into {n_steps} step files + skeleton. "
