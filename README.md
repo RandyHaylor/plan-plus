@@ -91,6 +91,14 @@ steps:     .claude/plans/plan-plus--vue-checkers-multiplayer/steps/
 
 ---
 
+## Screenshots
+
+![Step 0 reads all step files, refines the skeleton, then launches Step 1 with the executor agent](plan-plus-screenshot-2.png)
+
+![Plan-plus executing steps — writing tests, wiring components, verifying](plan-plus-screenshot.png)
+
+---
+
 ## How It Works
 
 **Plan mode works normally.** Claude researches, explores, writes a detailed plan.
