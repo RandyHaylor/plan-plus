@@ -164,6 +164,7 @@ def main():
 
     cwd = hook_input.get("cwd", os.getcwd())
     transcript_path = hook_input.get("transcript_path", "")
+    session_name = hook_input.get("session_name", "")
 
     plan_file = find_plan_file(hook_input)
     if not plan_file:
@@ -176,7 +177,20 @@ def main():
     if plan_basename.startswith("plan-plus--"):
         sys.exit(0)
 
-    plan_dir = Path(cwd) / "plans" / f"plan-plus--{plan_basename}"
+    # Use session name if available, otherwise session ID
+    session_id = hook_input.get("session_id", "")
+    if session_name:
+        display_name = session_name
+    elif session_id:
+        display_name = session_id[:12]
+    else:
+        display_name = "unnamed"
+    # Sanitize for filesystem
+    display_name = re.sub(r'[^\w\s-]', '', display_name).strip().replace(' ', '-').lower()
+    if not display_name:
+        display_name = "unnamed"
+
+    plan_dir = Path(cwd) / "plans" / f"plan-plus--{display_name}"
 
     # Create structure
     (plan_dir / "steps").mkdir(parents=True, exist_ok=True)
@@ -208,9 +222,9 @@ def main():
     # Build skeleton
     req_block = requirements if requirements else "## Requirements\n- (see plan-full.md)"
     steps = extract_steps(plan_content)
-    rel_dir = f"plans/plan-plus--{plan_basename}"
+    rel_dir = f"plans/plan-plus--{display_name}"
 
-    skeleton = f"""# plan-plus--{plan_basename}
+    skeleton = f"""# plan-plus--{display_name}
 dir: {rel_dir}/
 full: {rel_dir}/plan-full.md
 ctx: {rel_dir}/context/
@@ -230,7 +244,7 @@ Update context/ with discoveries.
     plan_path.write_text(skeleton, encoding="utf-8")
 
     # Rename for CLI display
-    new_plan_path = plan_path.parent / f"plan-plus--{plan_basename}.md"
+    new_plan_path = plan_path.parent / f"plan-plus--{display_name}.md"
     if plan_path != new_plan_path:
         plan_path.rename(new_plan_path)
 
