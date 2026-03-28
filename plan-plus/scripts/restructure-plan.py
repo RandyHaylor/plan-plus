@@ -329,8 +329,7 @@ steps: {rel_dir}/steps/
 
     output = {
         "systemMessage": (
-            f"plan-plus: split plan into {n_steps} step files + skeleton. "
-            f"Start with step 0 to refine the skeleton. "
+            f"plan-plus: extracted {n_steps} step details to files, created skeleton. "
             f"Files: {rel_dir}/"
             f"{existing_warning}"
         ),
