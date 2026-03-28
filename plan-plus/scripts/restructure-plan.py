@@ -235,7 +235,7 @@ def main():
     if not display_name:
         display_name = "unnamed"
 
-    plan_dir = Path(cwd) / "plans" / f"plan-plus--{display_name}"
+    plan_dir = Path(cwd) / ".claude" / "plans" / f"plan-plus--{display_name}"
     steps_dir = plan_dir / "steps"
     context_dir = plan_dir / "context"
     abs_dir = str(plan_dir)
