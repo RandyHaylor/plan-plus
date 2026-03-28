@@ -153,33 +153,6 @@ Keep the skeleton lightweight.
     )
 
 
-def get_display_name(hook_input, transcript_path):
-    """Get display name: session_name > customTitle from JSONL > session ID."""
-    session_name = hook_input.get("session_name", "")
-    if session_name:
-        return session_name
-
-    if transcript_path and os.path.isfile(transcript_path):
-        try:
-            with open(transcript_path) as f:
-                for line in f:
-                    try:
-                        entry = json.loads(line)
-                        if entry.get("type") == "custom-title":
-                            title = entry.get("customTitle", "")
-                            if title:
-                                return title
-                    except (json.JSONDecodeError, KeyError):
-                        continue
-        except Exception:
-            pass
-
-    session_id = hook_input.get("session_id", "")
-    if session_id:
-        return session_id[:12]
-
-    return "unnamed"
-
 
 def mine_goals(jsonl_path, limit=5):
     """Extract first few user messages as goals."""
@@ -238,12 +211,7 @@ def main():
     except Exception:
         pass
 
-    display_name = get_display_name(hook_input, transcript_path)
-    display_name = re.sub(r'[^\w\s-]', '', display_name).strip().replace(' ', '-').lower()
-    if not display_name:
-        display_name = plan_basename
-
-    plan_dir = Path(cwd) / ".claude" / "plans" / f"plan-plus--{display_name}"
+    plan_dir = Path(cwd) / ".claude" / "plans" / f"plan-plus--{plan_basename}"
     steps_dir = plan_dir / "steps"
     context_dir = plan_dir / "context"
     abs_dir = str(plan_dir)
@@ -292,11 +260,12 @@ def main():
     all_steps = [step_zero] + step_entries
     steps_block = "\n".join(all_steps)
 
-    skeleton = f"""# plan-plus: {display_name}
+    skeleton = f"""# plan-plus: {plan_basename}
 skeleton: {skeleton_path}
 
 ## Instructions
 - Use plan-plus-executor agent for each step — pass the step's detail file + relevant context/ files
+- One agent call per step — do not combine multiple steps into a single agent call
 - Agent context is ephemeral — won't bloat this conversation
 - Update context/ files with discoveries as you go
 - Split context files if they exceed ~200 lines
