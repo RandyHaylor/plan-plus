@@ -113,7 +113,7 @@ def summarize_section(header, content, max_lines=3):
     return ", ".join(summary_parts[:max_lines])
 
 
-def write_step_files(sections, steps_dir, rel_steps_dir):
+def write_step_files(sections, steps_dir, abs_steps_dir):
     step_entries = []
     for i, (header, content) in enumerate(sections, 1):
         slug = slugify(header)
@@ -124,12 +124,12 @@ def write_step_files(sections, steps_dir, rel_steps_dir):
         summary = summarize_section(header, content)
         step_entries.append(
             f"{i}. [ ] {header} — {summary}\n"
-            f"   details: {rel_steps_dir}/{filename}"
+            f"   details: {abs_steps_dir}/{filename}"
         )
     return step_entries
 
 
-def write_step_zero(steps_dir, rel_steps_dir):
+def write_step_zero(steps_dir, abs_steps_dir):
     content = """# Step 0: Update plan skeleton
 
 Read all step files and context files. Rewrite the skeleton plan file with:
@@ -147,7 +147,7 @@ Keep the skeleton lightweight.
     (steps_dir / "00-update-skeleton.md").write_text(content, encoding="utf-8")
     return (
         f"0. [ ] Update plan skeleton — read all steps + context, add requirements, refine summaries\n"
-        f"   details: {rel_steps_dir}/00-update-skeleton.md"
+        f"   details: {abs_steps_dir}/00-update-skeleton.md"
     )
 
 
@@ -238,8 +238,8 @@ def main():
     plan_dir = Path(cwd) / "plans" / f"plan-plus--{display_name}"
     steps_dir = plan_dir / "steps"
     context_dir = plan_dir / "context"
-    rel_dir = f"plans/plan-plus--{display_name}"
-    rel_steps = f"{rel_dir}/steps"
+    abs_dir = str(plan_dir)
+    abs_steps = str(steps_dir)
 
     # Check for existing plan directory
     existing_plan_dir = plan_dir.exists()
@@ -268,8 +268,8 @@ def main():
         )
 
     # Write step files
-    step_entries = write_step_files(step_sections, steps_dir, rel_steps)
-    step_zero = write_step_zero(steps_dir, rel_steps)
+    step_entries = write_step_files(step_sections, steps_dir, abs_steps)
+    step_zero = write_step_zero(steps_dir, abs_steps)
 
     # Mine JSONL for goals only
     if transcript_path and os.path.isfile(transcript_path):
@@ -294,9 +294,9 @@ def main():
 - Mark steps done in this skeleton as you complete them
 - Do not put verbose content in this skeleton
 
-full plan: {rel_dir}/plan-full.md
-context: {rel_dir}/context/
-steps: {rel_dir}/steps/
+full plan: {abs_dir}/plan-full.md
+context: {abs_dir}/context/
+steps: {abs_dir}/steps/
 
 ## Requirements
 (to be filled in by step 0)
@@ -319,27 +319,27 @@ steps: {rel_dir}/steps/
     existing_context = ""
     if existing_plan_dir:
         existing_warning = (
-            f" WARNING: {rel_dir}/ already existed — new step files were added alongside old ones."
+            f" WARNING: {abs_dir}/ already existed — new step files were added alongside old ones."
         )
         existing_context = (
             f" NOTE: The plan directory already existed from a previous plan mode exit. "
-            f"There may be old step files alongside new ones in {rel_dir}/steps/. "
+            f"There may be old step files alongside new ones in {abs_dir}/steps/. "
             f"Ask the user if they want to keep or remove the old plan files before proceeding."
         )
 
     output = {
         "systemMessage": (
             f"plan-plus: extracted {n_steps} step details to files, created skeleton. "
-            f"Files: {rel_dir}/"
+            f"Files: {abs_dir}/"
             f"{existing_warning}"
         ),
         "hookSpecificOutput": {
             "hookEventName": "PostToolUse",
             "additionalContext": (
                 f"plan-plus restructured the plan into {n_steps} step files. "
-                f"Original: {rel_dir}/plan-full.md. "
+                f"Original: {abs_dir}/plan-full.md. "
                 f"Skeleton is now the auto-injected file with instructions at top. "
-                f"Step files in {rel_dir}/steps/. Context in {rel_dir}/context/. "
+                f"Step files in {abs_dir}/steps/. Context in {abs_dir}/context/. "
                 f"START WITH STEP 0: use plan-plus-executor agent to read all step "
                 f"files and context, then refine the skeleton with real requirements "
                 f"(stack, architecture, patterns, constraints) and one sentence or a "
