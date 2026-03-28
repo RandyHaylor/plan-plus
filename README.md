@@ -160,3 +160,21 @@ By replacing the plan file with a small skeleton, each injection costs ~100 toke
 ## License
 
 MIT
+
+---
+
+## What It Actually Does (User Story)
+
+**You:** Open a fresh Claude Code session, switch on plan mode, and type: "build me a Vue 3 multiplayer checkers game with Firebase."
+
+**Claude:** Spends several turns researching your codebase, thinking through the architecture, and writes a detailed plan — stack choices, file structure, game logic, TDD approach, deployment. You read it, it looks good. You approve.
+
+**The moment you hit approve**, before Claude writes a single line of code, the plan-plus hook fires. In the background, Python reads the plan file Claude just wrote, splits every `##` section into its own file, saves the full plan as a backup, mines your early messages for goals, and rewrites the plan file in place with a lightweight skeleton — a short checklist with paths to the detail files.
+
+**Claude's first move** is to spawn an ephemeral agent (Step 0) that reads every step file and every context file, then comes back and fills in the Requirements section of the skeleton with the real stack, architecture decisions, and constraints. The agent's context is thrown away when it's done.
+
+**For each subsequent step**, Claude spawns another ephemeral agent, hands it just the relevant step file and context files, and lets it do the work. When the agent finishes and returns, its entire working context is gone. The main conversation never saw any of it.
+
+**What you see** in the main conversation: a short skeleton getting checkboxes ticked off, one by one. No re-injected walls of plan text accumulating turn after turn. The context stays clean across the whole build.
+
+**When it's done**, your project is built and the main conversation is still lightweight enough to keep going — ask follow-up questions, request changes, start a new feature — without hitting context limits from the plan you approved at the start.
