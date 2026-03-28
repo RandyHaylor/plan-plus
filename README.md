@@ -23,7 +23,7 @@ Restart Claude Code. Use plan mode normally. When you exit plan mode, plan-plus 
 
 ## The Problem
 
-Claude Code re-injects the full plan file into every API call during plan execution. These injections accumulate in the in-memory message array and can't be removed until compaction. A 4KB plan injected across 30 turns wastes ~120KB of context on duplicate plan content.
+Claude Code re-injects the full plan file into the in-memory message array on every turn during plan execution. These injections accumulate and can't be removed until compaction. A 4KB plan injected across 30 turns adds ~120KB of duplicate plan content to the main conversation context.
 
 ## The Solution
 
@@ -151,9 +151,9 @@ If plan-plus detects that the plan directory already exists (from a previous Exi
 
 ## Technical Background
 
-Claude Code's plan execution mode re-injects the plan file content as a `plan_file_reference` attachment on every turn. These attachments are computed in-memory from the plan file on disk, appended to the persistent message array via React state (`setMessages`), and sent to the Anthropic API with every call. They accumulate until compaction replaces the entire message array.
+Claude Code's plan execution mode re-injects the plan file content as a `plan_file_reference` attachment on every turn. These attachments are computed in-memory from the plan file on disk and appended to the persistent message array via React state (`setMessages`). They accumulate there until compaction replaces the entire message array — meaning every turn of execution adds another copy of the full plan into the main conversation's in-memory context.
 
-By replacing the plan file with a small skeleton, each injection costs ~100 tokens instead of ~1000+. The verbose plan content lives in step files that only agents read in their ephemeral context.
+By replacing the plan file with a small skeleton, each injection is a fraction of the size. The verbose plan content lives in step files that only agents read in their ephemeral context, keeping the main conversation lean throughout execution.
 
 ---
 
