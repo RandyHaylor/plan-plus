@@ -129,8 +129,10 @@ def write_step_files(sections, steps_dir, abs_steps_dir):
     return step_entries
 
 
-def write_step_zero(steps_dir, abs_steps_dir):
-    content = """# Step 0: Update plan skeleton
+def write_step_zero(steps_dir, abs_steps_dir, skeleton_path):
+    content = f"""# Step 0: Update plan skeleton
+
+Skeleton file to edit: {skeleton_path}
 
 Read all step files and context files. Rewrite the skeleton plan file with:
 - A requirements section: stack, architecture, design patterns, constraints, key features
@@ -226,14 +228,20 @@ def main():
 
     plan_path = Path(plan_file)
     plan_basename = plan_path.stem
+    skeleton_path = str(plan_path)
 
-    if plan_basename.startswith("plan-plus--"):
-        sys.exit(0)
+    # Skip if already restructured by plan-plus
+    try:
+        existing_content = plan_path.read_text(encoding="utf-8")
+        if "## Instructions" in existing_content and "plan-plus-executor" in existing_content:
+            sys.exit(0)
+    except Exception:
+        pass
 
     display_name = get_display_name(hook_input, transcript_path)
     display_name = re.sub(r'[^\w\s-]', '', display_name).strip().replace(' ', '-').lower()
     if not display_name:
-        display_name = "unnamed"
+        display_name = plan_basename
 
     plan_dir = Path(cwd) / ".claude" / "plans" / f"plan-plus--{display_name}"
     steps_dir = plan_dir / "steps"
@@ -269,7 +277,7 @@ def main():
 
     # Write step files
     step_entries = write_step_files(step_sections, steps_dir, abs_steps)
-    step_zero = write_step_zero(steps_dir, abs_steps)
+    step_zero = write_step_zero(steps_dir, abs_steps, skeleton_path)
 
     # Mine JSONL for goals only
     if transcript_path and os.path.isfile(transcript_path):
@@ -284,7 +292,8 @@ def main():
     all_steps = [step_zero] + step_entries
     steps_block = "\n".join(all_steps)
 
-    skeleton = f"""# plan-plus--{display_name}
+    skeleton = f"""# plan-plus: {display_name}
+skeleton: {skeleton_path}
 
 ## Instructions
 - Use plan-plus-executor agent for each step — pass the step's detail file + relevant context/ files
@@ -307,11 +316,6 @@ steps: {abs_dir}/steps/
 
     # Write skeleton
     plan_path.write_text(skeleton, encoding="utf-8")
-
-    # Rename for CLI display
-    new_plan_path = plan_path.parent / f"plan-plus--{display_name}.md"
-    if plan_path != new_plan_path:
-        plan_path.rename(new_plan_path)
 
     # Output
     n_steps = len(step_sections)
