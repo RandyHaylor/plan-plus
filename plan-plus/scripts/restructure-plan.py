@@ -134,15 +134,15 @@ def write_step_zero(steps_dir, rel_steps_dir):
 
 Read all step files and context files. Rewrite the skeleton plan file with:
 - A requirements section: stack, architecture, design patterns, constraints, key features
-- Accurate brief summaries for each step (one line each)
-- Any critical project-wide info that every step needs to know
+- Each step described in one sentence or a few tiny bullets
+- Any global-level critical info that deserves to be in the skeleton
 
 Read these before starting:
 - All files in steps/
 - All files in context/
 - plan-full.md for the original complete plan
 
-Keep the skeleton under ~40 lines. Do not add verbose content.
+Keep the skeleton lightweight.
 """
     (steps_dir / "00-update-skeleton.md").write_text(content, encoding="utf-8")
     return (
