@@ -6,11 +6,11 @@ Optimized plan mode for Claude Code. Automatically restructures plans into light
 
 When you exit plan mode (ExitPlanMode), plan-plus:
 
-1. **Backs up** your full plan to `plans/pp--<name>/plan-full.md`
+1. **Backs up** your full plan to `plans/plan-plus--<name>/plan-full.md`
 2. **Mines your conversation** JSONL for goals, tech stack, patterns, and constraints
-3. **Creates context files** in `plans/pp--<name>/context/`
+3. **Creates context files** in `plans/plan-plus--<name>/context/`
 4. **Rewrites** the plan file as a lightweight skeleton (~500 bytes vs ~4KB+)
-5. **Renames** the plan file to `pp--<name>.md` so you can see it's plan-plus managed
+5. **Renames** the plan file to `plan-plus--<name>.md` so you can see it's plan-plus managed
 6. **Injects instructions** telling Claude to use the `plan-plus-executor` agent for step execution
 
 ## Why
@@ -39,8 +39,8 @@ Then restart Claude Code.
 Just use plan mode normally. When you approve the plan (ExitPlanMode), the hook fires automatically.
 
 After restructuring, you'll see:
-- Plan name in CLI shows `pp--<original-name>`
-- `plans/pp--<name>/` directory created in your project with:
+- Plan name in CLI shows `plan-plus--<original-name>`
+- `plans/plan-plus--<name>/` directory created in your project with:
   - `plan-full.md` — your original complete plan
   - `context/goals.md` — goals extracted from conversation
   - `context/requirements.md` — stack, patterns, constraints detected
@@ -49,8 +49,8 @@ After restructuring, you'll see:
 Use the `plan-plus-executor` agent to execute steps:
 ```
 Use the plan-plus-executor agent to work on step 1.
-Pass it the step details from plans/pp--<name>/plan-full.md
-and the context files from plans/pp--<name>/context/.
+Pass it the step details from plans/plan-plus--<name>/plan-full.md
+and the context files from plans/plan-plus--<name>/context/.
 ```
 
 ## Structure

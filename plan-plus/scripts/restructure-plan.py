@@ -3,7 +3,7 @@
 
 Reads the full plan + conversation JSONL.
 Creates skeleton plan + context files.
-Renames plan file for pp-- CLI display.
+Renames plan file for plan-plus-- CLI display.
 """
 import json
 import os
@@ -173,10 +173,10 @@ def main():
     plan_basename = plan_path.stem
 
     # Skip if already restructured
-    if plan_basename.startswith("pp--"):
+    if plan_basename.startswith("plan-plus--"):
         sys.exit(0)
 
-    plan_dir = Path(cwd) / "plans" / f"pp--{plan_basename}"
+    plan_dir = Path(cwd) / "plans" / f"plan-plus--{plan_basename}"
 
     # Create structure
     (plan_dir / "steps").mkdir(parents=True, exist_ok=True)
@@ -208,9 +208,9 @@ def main():
     # Build skeleton
     req_block = requirements if requirements else "## Requirements\n- (see plan-full.md)"
     steps = extract_steps(plan_content)
-    rel_dir = f"plans/pp--{plan_basename}"
+    rel_dir = f"plans/plan-plus--{plan_basename}"
 
-    skeleton = f"""# pp--{plan_basename}
+    skeleton = f"""# plan-plus--{plan_basename}
 dir: {rel_dir}/
 full: {rel_dir}/plan-full.md
 ctx: {rel_dir}/context/
@@ -230,7 +230,7 @@ Update context/ with discoveries.
     plan_path.write_text(skeleton, encoding="utf-8")
 
     # Rename for CLI display
-    new_plan_path = plan_path.parent / f"pp--{plan_basename}.md"
+    new_plan_path = plan_path.parent / f"plan-plus--{plan_basename}.md"
     if plan_path != new_plan_path:
         plan_path.rename(new_plan_path)
 
