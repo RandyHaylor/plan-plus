@@ -8,5 +8,5 @@
   "license": "MIT",
   "keywords": ["plan-mode", "optimization", "context-management", "token-efficiency"],
   "hooks": "./hooks/hooks.json",
-  "agents": "./agents"
+  "agents": ["./agents"]
 }
