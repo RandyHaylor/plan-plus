@@ -2,19 +2,19 @@
 """plan-plus: PostToolUse hook for ExitPlanMode.
 
 Reads the full plan + conversation JSONL.
-Creates skeleton plan + context files.
-Renames plan file for plan-plus-- CLI display.
+Splits plan into step files.
+Creates skeleton with instructions, requirements summary, step list with paths.
+Always injects Step 0: Update plan skeleton.
+Mines JSONL for goals/requirements context.
 """
 import json
 import os
 import re
-import shutil
 import sys
 from pathlib import Path
 
 
 def read_stdin():
-    """Read hook input JSON from stdin."""
     try:
         return json.loads(sys.stdin.read())
     except (json.JSONDecodeError, ValueError):
@@ -22,8 +22,6 @@ def read_stdin():
 
 
 def find_plan_file(hook_input):
-    """Find the plan file path from hook input."""
-    # Try multiple locations in the response
     for path_expr in [
         lambda d: d.get("tool_input", {}).get("planFilePath"),
         lambda d: d.get("tool_response", {}).get("filePath"),
@@ -36,18 +34,126 @@ def find_plan_file(hook_input):
         except (TypeError, AttributeError):
             continue
 
-    # Fallback: most recently modified .md in plans dir
     plans_dir = Path.home() / ".claude" / "plans"
     if plans_dir.is_dir():
-        md_files = sorted(plans_dir.glob("*.md"), key=lambda p: p.stat().st_mtime, reverse=True)
+        md_files = sorted(
+            plans_dir.glob("*.md"),
+            key=lambda p: p.stat().st_mtime,
+            reverse=True,
+        )
         if md_files:
             return str(md_files[0])
-
     return None
 
 
+def slugify(text):
+    """Convert header text to filesystem-safe slug."""
+    text = re.sub(r'[^\w\s-]', '', text.lower()).strip()
+    text = re.sub(r'[\s_]+', '-', text)
+    text = re.sub(r'-+', '-', text).strip('-')
+    return text[:60] if text else "unnamed"
+
+
+def split_plan_into_sections(plan_content):
+    """Split plan on ## headers. Returns (preamble, [(header, content), ...])."""
+    lines = plan_content.splitlines(keepends=True)
+    preamble_lines = []
+    sections = []
+    current_header = None
+    current_lines = []
+
+    for line in lines:
+        if re.match(r'^## ', line):
+            if current_header is not None:
+                sections.append((current_header, "".join(current_lines).strip()))
+            current_header = line.strip().lstrip('#').strip()
+            current_lines = []
+        elif current_header is None:
+            preamble_lines.append(line)
+        else:
+            current_lines.append(line)
+
+    if current_header is not None:
+        sections.append((current_header, "".join(current_lines).strip()))
+
+    return "".join(preamble_lines).strip(), sections
+
+
+def summarize_section(header, content, max_lines=3):
+    """Extract a brief summary from a section's content."""
+    summary_parts = []
+    for line in content.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        # Skip markdown formatting artifacts
+        if stripped.startswith('```') or stripped.startswith('---'):
+            continue
+        # Take bullets, numbered items, or short descriptive lines
+        if (re.match(r'^[-*]\s', stripped)
+                or re.match(r'^\d+[.)]\s', stripped)
+                or re.match(r'^###\s', stripped)
+                or (len(stripped) < 120 and not stripped.startswith('#'))):
+            clean = stripped.lstrip('-*#').strip()
+            clean = re.sub(r'^\d+[.)]\s*', '', clean).strip()
+            if clean and len(clean) > 5:
+                summary_parts.append(clean)
+                if len(summary_parts) >= max_lines:
+                    break
+
+    if not summary_parts:
+        return header
+    return ", ".join(summary_parts[:max_lines])
+
+
+def write_step_files(sections, steps_dir, rel_steps_dir):
+    """Write each section to a step file. Returns skeleton step lines."""
+    step_entries = []
+
+    for i, (header, content) in enumerate(sections, 1):
+        slug = slugify(header)
+        filename = f"{i:02d}-{slug}.md"
+        filepath = steps_dir / filename
+
+        # Write full section content to step file
+        step_content = f"# {header}\n\n{content}\n"
+        filepath.write_text(step_content, encoding="utf-8")
+
+        # Build skeleton entry with brief summary
+        summary = summarize_section(header, content)
+        step_entries.append(
+            f"{i}. [ ] {header} — {summary}\n"
+            f"   details: {rel_steps_dir}/{filename}"
+        )
+
+    return step_entries
+
+
+def write_step_zero(steps_dir, rel_steps_dir, rel_dir):
+    """Write Step 0: Update plan skeleton."""
+    content = """# Step 0: Update plan skeleton
+
+Review all step files and context files. Rewrite the skeleton plan file with:
+- Accurate brief summaries for each step (one line each)
+- Complete requirements line covering stack, constraints, key features
+- Any critical project-wide info that every step needs to know
+
+Read these before starting:
+- All files in steps/
+- All files in context/
+- plan-full.md for the original complete plan
+
+Keep the skeleton under ~40 lines. Do not add verbose content.
+"""
+    (steps_dir / "00-update-skeleton.md").write_text(content, encoding="utf-8")
+
+    return (
+        f"0. [ ] Update plan skeleton — review all steps + context, refine this skeleton\n"
+        f"   details: {rel_steps_dir}/00-update-skeleton.md"
+    )
+
+
 def mine_goals(jsonl_path, limit=5):
-    """Extract goals from early user messages in JSONL."""
     messages = []
     with open(jsonl_path) as f:
         for line in f:
@@ -82,7 +188,6 @@ def mine_goals(jsonl_path, limit=5):
 
 
 def mine_requirements(jsonl_path):
-    """Extract tech stack, patterns, constraints from conversation."""
     all_text = ""
     with open(jsonl_path) as f:
         for line in f:
@@ -101,9 +206,8 @@ def mine_requirements(jsonl_path):
                 continue
 
     all_lower = all_text.lower()
-    lines = ["# Requirements (from conversation)"]
+    parts = []
 
-    # Detect stack
     stack_kw = {
         "react": "React", "vue": "Vue", "next.js": "Next.js", "nextjs": "Next.js",
         "node": "Node.js", "python": "Python", "typescript": "TypeScript",
@@ -112,12 +216,13 @@ def mine_requirements(jsonl_path):
         "redis": "Redis", "docker": "Docker", "kubernetes": "Kubernetes",
         "fastapi": "FastAPI", "django": "Django", "flask": "Flask",
         "express": "Express", "svelte": "Svelte", "tailwind": "Tailwind",
+        "electron": "Electron", "firebase": "Firebase", "firestore": "Firestore",
+        "vitest": "Vitest", "jest": "Jest", "vite": "Vite",
     }
-    found_stack = sorted({name for kw, name in stack_kw.items() if kw in all_lower})
-    if found_stack:
-        lines.append(f"- Stack: {', '.join(found_stack)}")
+    found = sorted({name for kw, name in stack_kw.items() if kw in all_lower})
+    if found:
+        parts.append(f"Stack: {', '.join(found)}")
 
-    # Detect patterns
     pattern_kw = {
         "microservice": "Microservices", "monolith": "Monolith",
         "serverless": "Serverless", "event-driven": "Event-driven",
@@ -126,11 +231,10 @@ def mine_requirements(jsonl_path):
         "hexagonal": "Hexagonal", "domain-driven": "DDD",
         "tdd": "TDD", "test-driven": "TDD",
     }
-    found_patterns = sorted({name for kw, name in pattern_kw.items() if kw in all_lower})
-    if found_patterns:
-        lines.append(f"- Patterns: {', '.join(found_patterns)}")
+    found_p = sorted({name for kw, name in pattern_kw.items() if kw in all_lower})
+    if found_p:
+        parts.append(f"Patterns: {', '.join(found_p)}")
 
-    # Detect constraints
     constraints = []
     if "security" in all_lower or "auth" in all_lower:
         constraints.append("Security-sensitive")
@@ -139,24 +243,9 @@ def mine_requirements(jsonl_path):
     if "backward compat" in all_lower or "backwards compat" in all_lower:
         constraints.append("Backward compatibility")
     if constraints:
-        lines.append(f"- Constraints: {', '.join(constraints)}")
+        parts.append(f"Constraints: {', '.join(constraints)}")
 
-    if len(lines) == 1:
-        lines.append("- (review plan-full.md for details)")
-
-    return "\n".join(lines)
-
-
-def extract_steps(plan_content):
-    """Extract step-like lines from plan content."""
-    step_lines = []
-    for line in plan_content.splitlines():
-        stripped = line.strip()
-        if re.match(r'^[-*]\s', stripped) or re.match(r'^\d+[.)]\s', stripped):
-            step_lines.append(stripped)
-            if len(step_lines) >= 20:
-                break
-    return "\n".join(step_lines) if step_lines else "- See plan-full.md"
+    return "; ".join(parts) if parts else "(see plan-full.md)"
 
 
 def main():
@@ -165,6 +254,7 @@ def main():
     cwd = hook_input.get("cwd", os.getcwd())
     transcript_path = hook_input.get("transcript_path", "")
     session_name = hook_input.get("session_name", "")
+    session_id = hook_input.get("session_id", "")
 
     plan_file = find_plan_file(hook_input)
     if not plan_file:
@@ -173,72 +263,96 @@ def main():
     plan_path = Path(plan_file)
     plan_basename = plan_path.stem
 
-    # Skip if already restructured
     if plan_basename.startswith("plan-plus--"):
         sys.exit(0)
 
-    # Use session name if available, otherwise session ID
-    session_id = hook_input.get("session_id", "")
+    # Display name: session name > session ID > "unnamed"
     if session_name:
         display_name = session_name
     elif session_id:
         display_name = session_id[:12]
     else:
         display_name = "unnamed"
-    # Sanitize for filesystem
     display_name = re.sub(r'[^\w\s-]', '', display_name).strip().replace(' ', '-').lower()
     if not display_name:
         display_name = "unnamed"
 
     plan_dir = Path(cwd) / "plans" / f"plan-plus--{display_name}"
+    steps_dir = plan_dir / "steps"
+    context_dir = plan_dir / "context"
+    rel_dir = f"plans/plan-plus--{display_name}"
+    rel_steps = f"{rel_dir}/steps"
 
     # Create structure
-    (plan_dir / "steps").mkdir(parents=True, exist_ok=True)
-    (plan_dir / "context").mkdir(parents=True, exist_ok=True)
+    steps_dir.mkdir(parents=True, exist_ok=True)
+    context_dir.mkdir(parents=True, exist_ok=True)
 
     # Read and backup original
     plan_content = plan_path.read_text(encoding="utf-8")
     (plan_dir / "plan-full.md").write_text(plan_content, encoding="utf-8")
 
+    # Split plan into sections and write step files
+    preamble, sections = split_plan_into_sections(plan_content)
+
+    # Write preamble as project context
+    if preamble:
+        (context_dir / "project.md").write_text(
+            f"# Project Context\n\n{preamble}\n", encoding="utf-8"
+        )
+
+    # Write step files and get skeleton entries
+    step_entries = write_step_files(sections, steps_dir, rel_steps)
+
+    # Write step 0
+    step_zero = write_step_zero(steps_dir, rel_steps, rel_dir)
+
     # Mine JSONL
     goals = ""
-    requirements = ""
+    req_summary = "(see plan-full.md)"
     if transcript_path and os.path.isfile(transcript_path):
         try:
             goals = mine_goals(transcript_path)
         except Exception:
             pass
         try:
-            requirements = mine_requirements(transcript_path)
+            req_summary = mine_requirements(transcript_path)
         except Exception:
             pass
 
     # Write context files
     if goals:
-        (plan_dir / "context" / "goals.md").write_text(goals, encoding="utf-8")
-    if requirements:
-        (plan_dir / "context" / "requirements.md").write_text(requirements, encoding="utf-8")
+        (context_dir / "goals.md").write_text(goals, encoding="utf-8")
 
     # Build skeleton
-    req_block = requirements if requirements else "## Requirements\n- (see plan-full.md)"
-    steps = extract_steps(plan_content)
-    rel_dir = f"plans/plan-plus--{display_name}"
+    all_steps = [step_zero] + step_entries
+    steps_block = "\n".join(all_steps)
 
     skeleton = f"""# plan-plus--{display_name}
-dir: {rel_dir}/
-full: {rel_dir}/plan-full.md
-ctx: {rel_dir}/context/
 
-{req_block}
+## Instructions
+- Use plan-plus-executor agent for each step — pass the step's detail file + relevant context/ files
+- Agent context is ephemeral — won't bloat this conversation
+- Update context/ files with discoveries as you go
+- Split context files if they exceed ~200 lines
+- Mark steps done in this skeleton as you complete them
+- Do not put verbose content in this skeleton
+
+full requirements: {rel_dir}/context/requirements.md
+context: {rel_dir}/context/
+steps: {rel_dir}/steps/
+
+## Requirements
+{req_summary}
 
 ## Steps
-{steps}
-
-## Agents
-Use plan-plus-executor agent for step execution.
-Pass step details + relevant context/ files.
-Update context/ with discoveries.
+{steps_block}
 """
+
+    # Write requirements context file (full detail for agents to read)
+    (context_dir / "requirements.md").write_text(
+        f"# Requirements\n\n{req_summary}\n\nSee plan-full.md for complete details.\n",
+        encoding="utf-8",
+    )
 
     # Write skeleton to plan file
     plan_path.write_text(skeleton, encoding="utf-8")
@@ -248,25 +362,27 @@ Update context/ with discoveries.
     if plan_path != new_plan_path:
         plan_path.rename(new_plan_path)
 
-    # Output for both user (systemMessage) and Claude (additionalContext)
+    # Output for user and Claude
+    n_steps = len(sections)
     output = {
         "systemMessage": (
-            f"plan-plus: restructured plan to skeleton. "
-            f"Full plan: {rel_dir}/plan-full.md | "
-            f"Context: {rel_dir}/context/"
+            f"plan-plus: split plan into {n_steps} step files + skeleton. "
+            f"Start with step 0 to refine the skeleton. "
+            f"Files: {rel_dir}/"
         ),
         "hookSpecificOutput": {
             "hookEventName": "PostToolUse",
             "additionalContext": (
-                f"plan-plus restructured the plan. "
+                f"plan-plus restructured the plan into {n_steps} step files. "
                 f"Original: {rel_dir}/plan-full.md. "
-                f"Skeleton is now the auto-injected file. "
-                f"Context files in {rel_dir}/context/. "
-                f"Use the plan-plus-executor agent to work through steps — "
-                f"pass it the step details and relevant context files. "
-                f"The agent's context is ephemeral so it won't bloat your conversation."
-            )
-        }
+                f"Skeleton is now the auto-injected file with instructions at top. "
+                f"Step files in {rel_dir}/steps/. Context in {rel_dir}/context/. "
+                f"START WITH STEP 0: read all step files and context, then refine "
+                f"the skeleton with better summaries and complete requirements. "
+                f"Use plan-plus-executor agent for each step — pass the step's "
+                f"detail file + relevant context files."
+            ),
+        },
     }
     print(json.dumps(output))
 
