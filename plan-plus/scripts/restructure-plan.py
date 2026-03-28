@@ -281,7 +281,7 @@ def main():
     if plan_basename.startswith("plan-plus--"):
         sys.exit(0)
 
-    # Try to get session topic from JSONL slug field
+    # Try to get session topic from JSONL custom-title entry
     session_topic = ""
     if transcript_path and os.path.isfile(transcript_path):
         try:
@@ -289,16 +289,16 @@ def main():
                 for line in f:
                     try:
                         entry = json.loads(line)
-                        slug = entry.get("slug", "")
-                        if slug:
-                            session_topic = slug
-                            break
+                        if entry.get("type") == "custom-title":
+                            session_topic = entry.get("customTitle", "")
+                            if session_topic:
+                                break
                     except (json.JSONDecodeError, KeyError):
                         continue
         except Exception:
             pass
 
-    # Display name: session name > session topic from JSONL > session ID
+    # Display name: session name > custom title from JSONL > session ID
     if session_name:
         display_name = session_name
     elif session_topic:
