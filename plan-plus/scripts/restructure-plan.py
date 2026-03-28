@@ -234,8 +234,13 @@ Update context/ with discoveries.
     if plan_path != new_plan_path:
         plan_path.rename(new_plan_path)
 
-    # Output additionalContext for Claude
+    # Output for both user (systemMessage) and Claude (additionalContext)
     output = {
+        "systemMessage": (
+            f"plan-plus: restructured plan to skeleton. "
+            f"Full plan: {rel_dir}/plan-full.md | "
+            f"Context: {rel_dir}/context/"
+        ),
         "hookSpecificOutput": {
             "hookEventName": "PostToolUse",
             "additionalContext": (
