@@ -124,7 +124,7 @@ def write_step_files(sections, steps_dir, abs_steps_dir):
         summary = summarize_section(header, content)
         step_entries.append(
             f"{i}. [ ] {header} — {summary}\n"
-            f"   details: {abs_steps_dir}/{filename}"
+            f"   execute: plan-plus-executor agent with {abs_steps_dir}/{filename}"
         )
     return step_entries
 
@@ -147,7 +147,7 @@ Keep the skeleton lightweight.
     (steps_dir / "00-update-skeleton.md").write_text(content, encoding="utf-8")
     return (
         f"0. [ ] Update plan skeleton — read all steps + context, add requirements, refine summaries\n"
-        f"   details: {abs_steps_dir}/00-update-skeleton.md"
+        f"   execute: plan-plus-executor agent with {abs_steps_dir}/00-update-skeleton.md"
     )
 
 
