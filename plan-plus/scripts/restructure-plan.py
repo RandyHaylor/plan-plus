@@ -217,8 +217,11 @@ def main():
     abs_dir = str(plan_dir)
     abs_steps = str(steps_dir)
 
-    # Check for existing plan directory
+    # Check for existing plan directory and snapshot existing step files
     existing_plan_dir = plan_dir.exists()
+    existing_step_files = set()
+    if existing_plan_dir and steps_dir.exists():
+        existing_step_files = {f.name for f in steps_dir.iterdir() if f.is_file()}
 
     # Create structure
     steps_dir.mkdir(parents=True, exist_ok=True)
@@ -292,13 +295,19 @@ steps: {abs_dir}/steps/
     existing_warning = ""
     existing_context = ""
     if existing_plan_dir:
+        all_step_files = sorted(f.name for f in steps_dir.iterdir() if f.is_file())
+        tree_lines = [f"steps/ ({abs_steps})"]
+        for name in all_step_files:
+            tag = "OLD" if name in existing_step_files else "NEW"
+            tree_lines.append(f"  {'└──' if name == all_step_files[-1] else '├──'} [{tag}] {name}")
+        tree = "\n".join(tree_lines)
         existing_warning = (
-            f" WARNING: {abs_dir}/ already existed — new step files were added alongside old ones."
+            f" WARNING: plan directory already existed — new step files added alongside old ones.\n{tree}"
         )
         existing_context = (
             f" NOTE: The plan directory already existed from a previous plan mode exit. "
-            f"There may be old step files alongside new ones in {abs_dir}/steps/. "
-            f"Ask the user if they want to keep or remove the old plan files before proceeding."
+            f"Step files marked [OLD] are from the previous plan; [NEW] are from this plan. "
+            f"Ask the user if they want to remove the [OLD] files before proceeding.\n{tree}"
         )
 
     output = {
