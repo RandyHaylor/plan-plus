@@ -241,6 +241,9 @@ def main():
     rel_dir = f"plans/plan-plus--{display_name}"
     rel_steps = f"{rel_dir}/steps"
 
+    # Check for existing plan directory
+    existing_plan_dir = plan_dir.exists()
+
     # Create structure
     steps_dir.mkdir(parents=True, exist_ok=True)
     context_dir.mkdir(parents=True, exist_ok=True)
@@ -312,11 +315,24 @@ steps: {rel_dir}/steps/
 
     # Output
     n_steps = len(step_sections)
+    existing_warning = ""
+    existing_context = ""
+    if existing_plan_dir:
+        existing_warning = (
+            f" WARNING: {rel_dir}/ already existed — new step files were added alongside old ones."
+        )
+        existing_context = (
+            f" NOTE: The plan directory already existed from a previous plan mode exit. "
+            f"There may be old step files alongside new ones in {rel_dir}/steps/. "
+            f"Ask the user if they want to keep or remove the old plan files before proceeding."
+        )
+
     output = {
         "systemMessage": (
             f"plan-plus: split plan into {n_steps} step files + skeleton. "
             f"Start with step 0 to refine the skeleton. "
             f"Files: {rel_dir}/"
+            f"{existing_warning}"
         ),
         "hookSpecificOutput": {
             "hookEventName": "PostToolUse",
@@ -327,8 +343,9 @@ steps: {rel_dir}/steps/
                 f"Step files in {rel_dir}/steps/. Context in {rel_dir}/context/. "
                 f"START WITH STEP 0: use plan-plus-executor agent to read all step "
                 f"files and context, then refine the skeleton with real requirements "
-                f"(stack, architecture, patterns, constraints) and better summaries. "
-                f"Then proceed with step 1."
+                f"(stack, architecture, patterns, constraints) and one sentence or a "
+                f"few tiny bullets per step. Then proceed with step 1."
+                f"{existing_context}"
             ),
         },
     }
