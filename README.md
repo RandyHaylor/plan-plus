@@ -21,6 +21,25 @@ Restart Claude Code. Use plan mode normally. When you exit plan mode, plan-plus 
 
 ---
 
+## Case Study: Pac-Man Calculator
+
+A React calculator app with an animated Pac-Man that navigates the lanes between buttons, turning toward the mouse at intersections — no diagonal movement, no 180° turns, dot-product direction picking at each node.
+
+https://github.com/user-attachments/assets/pacman-calculator-example.mp4
+
+Two sessions built the same app from the same plan and the same 8 context files (lane graph construction, movement algorithm, canvas rendering, calculator reducer, CSS layout, component hierarchy, TypeScript interfaces, edge cases). Both produced near-identical results — Pac-Man successfully navigating between buttons, chomping, turning toward the cursor.
+
+| Metric | plan-plus | Standard plan mode |
+|--------|-----------|-------------------|
+| Total tokens | **1.59M** | 4.35M |
+| API calls | **50** | 98 |
+| Peak context | **41K** | 61K |
+| Calls at 30K+ context | **23** | 73 |
+
+**63% fewer tokens, 49% fewer API calls.** Plan-plus delegated work to 4 focused agents while standard mode ran all 98 calls in one growing context. The plan-plus output was also more robust — reusable utilities, generic spanning-button detection, correct animation overshoot math — while standard mode had a subtle momentum bug and hardcoded layout assumptions.
+
+---
+
 ## The Problem
 
 Claude Code re-injects the full plan file into the in-memory message array on every turn during plan execution. These injections accumulate and can't be removed until compaction. A 4KB plan injected across 30 turns adds ~120KB of duplicate plan content to the main conversation context.
