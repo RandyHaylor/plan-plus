@@ -25,7 +25,7 @@ Restart Claude Code. Use plan mode normally. When you exit plan mode, plan-plus 
 
 A React calculator app with an animated Pac-Man that navigates the lanes between buttons, turning toward the mouse at intersections — no diagonal movement, no 180° turns, dot-product direction picking at each node.
 
-https://github.com/user-attachments/assets/pacman-calculator-example.mp4
+https://github.com/RandyHaylor/plan-plus/raw/main/pacman-calculator-example.mp4
 
 Two sessions built the same app from the same plan and the same 8 context files (lane graph construction, movement algorithm, canvas rendering, calculator reducer, CSS layout, component hierarchy, TypeScript interfaces, edge cases). Both produced near-identical results — Pac-Man successfully navigating between buttons, chomping, turning toward the cursor.
 
