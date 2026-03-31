@@ -17,7 +17,7 @@ claude plugin marketplace add RandyHaylor/plan-plus
 claude plugin install plan-plus
 ```
 
-Restart Claude Code. Use plan mode normally. When approve a plan and claude transitions to execute the plan, plan-plus will automatically restructure the plan file and inject more instructions. (Manually exiting plan mode will not - you must go through claude code offering you the plan approval step and transition)
+Restart Claude Code. Use plan mode normally (shift+tab until it says plan mode in the cli tool - a button in the ui for vs code plugin). When approve a plan and claude transitions to execute the plan, plan-plus will automatically restructure the plan file and inject more instructions. (Manually exiting plan mode will not - you must go through claude code offering you the plan approval step and transition)
 
 ---
 
