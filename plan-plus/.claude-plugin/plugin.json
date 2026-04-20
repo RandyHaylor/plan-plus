@@ -1,6 +1,6 @@
 {
   "name": "plan-plus",
-  "description": "Optimizes Claude Code plan mode: auto-restructures plans to lightweight skeletons on exit, mines conversation for context, provides focused executor agent",
+  "description": "Optimizes Claude Code plan mode: on ExitPlanMode the full plan is copied to a plan-docs folder (plan-full.md) alongside a reference-docs/ folder, and the on-disk plan file is rewritten as a compressed line-reference index (each `## ` / `### ` header annotated with its (N-M) line range in the copy). Includes a reused-session executor agent so steps share one ephemeral agent context instead of spawning a new one per step.",
   "author": {
     "name": "RandyHaylor"
   }

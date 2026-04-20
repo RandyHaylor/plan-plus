@@ -2,11 +2,10 @@
 
 **Smarter plan execution for Claude Code.**
 
-- Automatically extracts plan steps into individual files when plan mode completes
-- Stores project context, goals, and requirements in dedicated context files
-- Agents read only the step and context files they need, then their context is discarded
-- The main conversation only carries a lightweight skeleton — not the full verbose plan
-- Base plan mode re-injects the entire plan every turn, filling context fast — plan-plus fixes this
+- On ExitPlanMode, copies the full original plan to a plan-docs folder (`plan-full.md`) alongside an empty `reference-docs/` folder for fine-grained context files
+- Rewrites the on-disk plan file in place as a compressed **line-reference index** — each `## ` / `### ` header is kept and annotated with its `(N-M)` line range in `plan-full.md`, and the bodies are removed
+- Bakes a **reused-session executor agent name** (`plan-plus-executor-<sessionid>`) into the header so every step resumes the same ephemeral agent instead of spawning a new one (agent creation is expensive)
+- Base plan mode re-injects the entire plan every turn, filling context fast — plan-plus fixes this by keeping only the compressed index on disk
 
 ---
 
@@ -48,7 +47,9 @@ Two sessions built the same app from the same plan and the same 8 context files 
 | Peak context | **41K** | 61K |
 | Calls at 30K+ context | **23** | 73 |
 
-**63% fewer tokens, 49% fewer API calls.** Plan-plus delegated work to 4 focused agents while standard mode ran all 98 calls in one growing context. The plan-plus output was also more robust — reusable utilities, generic spanning-button detection, correct animation overshoot math — while standard mode had a subtle momentum bug and hardcoded layout assumptions.
+**63% fewer tokens, 49% fewer API calls.** Plan-plus delegated work to a focused executor agent while standard mode ran all 98 calls in one growing context. The plan-plus output was also more robust — reusable utilities, generic spanning-button detection, correct animation overshoot math — while standard mode had a subtle momentum bug and hardcoded layout assumptions.
+
+> Note: this case study predates the current line-reference compression and reused-session agent design; the broader point (keeping plan content out of the main turn loop) still holds.
 
 ---
 
@@ -60,13 +61,12 @@ Claude Code re-injects the full plan file into the in-memory message array on ev
 
 Plan-plus intercepts ExitPlanMode and restructures the plan:
 
-- **Splits** the full plan into individual step files
-- **Creates** a lightweight skeleton that replaces the original plan file
-- **Mines** the conversation for goals
-- **Injects** a Step 0 that uses an agent to fill in real requirements and refine the skeleton
-- **Provides** a focused executor agent for step-by-step work with ephemeral context
+- **Copies** the full original plan to `<plan-dir>/plan-full.md` (source of truth)
+- **Creates** `<plan-dir>/reference-docs/` for small fine-grained additional plan context files
+- **Compresses** the on-disk plan file into a line-reference index: each `## ` / `### ` header is kept with a `(N-M)` line-range annotation referencing `plan-full.md`; bodies are removed
+- **Bakes** a session-specific executor agent name into the header with instructions to *reuse* that one agent session across all steps (via `SendMessage`) rather than spawning a new agent per step
 
-The skeleton is all that gets injected per turn. Agents read the detailed step files only when they need them, and their context is discarded when they return.
+Only the compressed index gets injected per turn. The executor agent reads specific line ranges from `plan-full.md` (and anything under `reference-docs/`) on demand, and its context stays off the main conversation.
 
 ---
 
@@ -78,47 +78,33 @@ The skeleton is all that gets injected per turn. Agents read the detailed step f
 
 ```
 .claude/plans/plan-plus--<session-name>/
-    plan-full.md              Full original plan (backup)
-    context/
-        project.md            Project context extracted from plan preamble
-        goals.md              Goals mined from early conversation messages
-        requirements.md       Created by Step 0 agent
-    steps/
-        00-update-skeleton.md Step 0: agent refines the skeleton
-        01-documentation.md   Step detail files with full content
-        02-project-setup.md   from each section of the original plan
-        03-game-logic.md
-        ...
+    plan-full.md              Full original plan (source of truth)
+    reference-docs/           Fine-grained context files (written by the executor agent as it learns)
 ```
 
-**The skeleton** (what gets injected per turn):
+And the on-disk plan file is rewritten in place as something like:
 
 ```markdown
-# plan-plus--vue-checkers-multiplayer
+full plan copy: /abs/path/.claude/plans/plan-plus--vue-checkers/plan-full.md
+to access plan sections read the indicated lines below from this file.
+Small fine grained additional plan context files should be placed or referenced here: /abs/path/.claude/plans/plan-plus--vue-checkers/reference-docs
+executor agent session: `plan-plus-executor-a1b2c3d4` (subagent_type: plan-plus-executor)
+ALWAYS reuse this one executor agent session for every step — spawning a new agent per step is expensive. Spawn it ONCE on the first step with name=`plan-plus-executor-a1b2c3d4` and subagent_type=`plan-plus-executor`. For every subsequent step use SendMessage(to="plan-plus-executor-a1b2c3d4", ...) to resume the SAME session — do NOT create a new Agent. If the session has expired, spawn a fresh Agent using the SAME name so continuity is preserved.
 
-## Instructions
-- Use plan-plus-executor agent for each step
-- Agent context is ephemeral
-- Update context/ files with discoveries
-- Mark steps done as you complete them
+## Context (3-18)
 
-full plan: .claude/plans/plan-plus--vue-checkers-multiplayer/plan-full.md
-context:   .claude/plans/plan-plus--vue-checkers-multiplayer/context/
-steps:     .claude/plans/plan-plus--vue-checkers-multiplayer/steps/
+## Plan (19-74)
 
-## Requirements
-- Stack: Vue 3 + Vite + TypeScript + Vitest + Firebase/Firestore
-- Architecture: Pure game logic -> Firebase service -> Vue components
-- Patterns: Strict TDD, pure functions, reactive composable
-- Key features: Multiplayer via Firestore, mandatory jumps, king promotion
+### Step 1 — Documentation (20-31)
 
-## Steps
-0. [x] Update skeleton — filled in requirements and step descriptions
-1. [ ] Documentation — requirements, user stories, firestore model, flowcharts
-2. [ ] Project setup — scaffold, install deps, configure vitest, verify
-3. [ ] TDD game logic — types, board, moves, jumps, execution, state
-...
+### Step 2 — Project setup (32-45)
+
+### Step 3 — TDD game logic (46-74)
+
+## Testing (75-90)
 ```
+
+Each `(N-M)` points to the line range in `plan-full.md` — the executor agent opens just those lines when it needs to work on that section.
 
 ---
 
@@ -128,6 +114,8 @@ steps:     .claude/plans/plan-plus--vue-checkers-multiplayer/steps/
 
 ![Plan-plus executing steps — writing tests, wiring components, verifying](plan-plus-screenshot.png)
 
+> Screenshots above show an earlier step-file-extraction design; the current plugin uses the line-reference index format described above.
+
 ---
 
 ## How It Works
@@ -136,17 +124,14 @@ steps:     .claude/plans/plan-plus--vue-checkers-multiplayer/steps/
 
 **On ExitPlanMode**, a PostToolUse hook fires and runs a Python script that:
 
-1. Backs up the full plan to `plan-full.md`
-2. Splits the plan on `## ` headers into individual step files
-3. Routes context-like sections (Context, Background, Overview) to `context/project.md`
-4. Mines the JSONL for early user messages (goals) and the session topic name
-5. Writes a skeleton with instructions, requirements placeholder, and step list
-6. Renames the plan file to `plan-plus--<session-name>.md`
-7. Injects `additionalContext` telling Claude to start with Step 0
+1. Locates the plan file Claude produced
+2. Creates `<cwd>/.claude/plans/plan-plus--<basename>/`
+3. Copies the full plan to `<plan-dir>/plan-full.md`
+4. Creates `<plan-dir>/reference-docs/`
+5. Rewrites the on-disk plan file as: a four-line header (full plan path, usage hint, reference-docs hint, executor agent session instructions) + the compressed line-reference index (produced by the self-contained `compress-to-line-reference.py`)
+6. Emits `additionalContext` pointing Claude at the new structure
 
-**Step 0** is always injected as the first step. An agent reads all step files and context, then rewrites the skeleton with real requirements (stack, architecture, patterns, constraints) and clear one-sentence descriptions per step.
-
-**Steps 1-N** are executed by spawning the `plan-plus-executor` agent with just the relevant step file and context files. The agent's context is ephemeral — it won't bloat the main conversation.
+**The executor agent** (`plan-plus-executor`) is spawned *once* per project session with name `plan-plus-executor-<sessionid>`. For every subsequent step Claude uses `SendMessage(to="plan-plus-executor-<sessionid>", ...)` to resume that same agent session, handing it the step header name, its `(N-M)` line range in `plan-full.md`, and any relevant `reference-docs/` files. The agent's context stays ephemeral to the main conversation.
 
 ---
 
@@ -161,30 +146,31 @@ steps:     .claude/plans/plan-plus--vue-checkers-multiplayer/steps/
 
 ```
 .claude-plugin/
-    marketplace.json             Marketplace manifest
+    marketplace.json                    Marketplace manifest
 
 plan-plus/
     .claude-plugin/
-        plugin.json              Plugin manifest
+        plugin.json                     Plugin manifest
     hooks/
-        hooks.json               PostToolUse hook on ExitPlanMode
+        hooks.json                      PostToolUse hook on ExitPlanMode
     scripts/
-        restructure-plan.py      Restructuring logic (Python)
+        restructure-plan.py             Main hook script (copy + compress + inject)
+        compress-to-line-reference.py   Self-contained, reusable line-reference compressor
     agents/
-        plan-plus-executor.md    Step execution agent definition
+        plan-plus-executor.md           Reused-session executor agent definition
 ```
 
 ---
 
 ## Naming
 
-The plan directory and skeleton file are named after the session topic (the name you see above the prompt field in Claude Code). If no topic name is available, falls back to the session ID.
+The plan directory is named after the plan file's basename (which Claude Code derives from the session topic — the name you see above the prompt field). The executor agent session name uses the first 8 chars of the Claude Code `session_id`.
 
 ---
 
-## Existing Plan Directory Warning
+## Idempotency
 
-If plan-plus detects that the plan directory already exists (from a previous ExitPlanMode in the same session), it warns the user and tells the orchestrator to ask whether to keep or remove old files. New step files are appended alongside existing ones.
+If the on-disk plan file already starts with `full plan copy:` (indicating plan-plus has already restructured it), the hook is a no-op. Running plan mode again with a new plan will rewrite it fresh.
 
 ---
 
@@ -192,7 +178,7 @@ If plan-plus detects that the plan directory already exists (from a previous Exi
 
 Claude Code's plan execution mode re-injects the plan file content as a `plan_file_reference` attachment on every turn. These attachments are computed in-memory from the plan file on disk and appended to the persistent message array via React state (`setMessages`). They accumulate there until compaction replaces the entire message array — meaning every turn of execution adds another copy of the full plan into the main conversation's in-memory context.
 
-By replacing the plan file with a small skeleton, each injection is a fraction of the size. The verbose plan content lives in step files that only agents read in their ephemeral context, keeping the main conversation lean throughout execution.
+By replacing the plan file with a small line-reference index, each injection is a fraction of the size. The verbose plan content lives in `plan-full.md` and is read by the executor agent at specific line ranges only when needed, keeping the main conversation lean throughout execution.
 
 ---
 
@@ -208,12 +194,12 @@ MIT
 
 **Claude:** Spends several turns researching your codebase, thinking through the architecture, and writes a detailed plan — stack choices, file structure, game logic, TDD approach, deployment. You read it, it looks good. You approve.
 
-**The moment you hit approve**, before Claude writes a single line of code, the plan-plus hook fires. In the background, Python reads the plan file Claude just wrote, splits every `##` section into its own file, saves the full plan as a backup, mines your early messages for goals, and rewrites the plan file in place with a lightweight skeleton — a short checklist with paths to the detail files.
+**The moment you hit approve**, before Claude writes a single line of code, the plan-plus hook fires. In the background, Python copies the plan file Claude just wrote to `plan-full.md`, creates a `reference-docs/` folder next to it, and rewrites the on-disk plan file in place as a compressed line-reference index — each `##`/`###` header kept with a `(N-M)` line range, bodies removed — plus a header baking in a session-specific executor agent name.
 
-**Claude's first move** is to spawn an ephemeral agent (Step 0) that reads every step file and every context file, then comes back and fills in the Requirements section of the skeleton with the real stack, architecture decisions, and constraints. The agent's context is thrown away when it's done.
+**Claude's first step** is to spawn the executor agent *once* with name `plan-plus-executor-<sessionid>`, handing it the header name and its line range in `plan-full.md`. The agent reads just those lines, does the work, and returns.
 
-**For each subsequent step**, Claude spawns another ephemeral agent, hands it just the relevant step file and context files, and lets it do the work. When the agent finishes and returns, its entire working context is gone. The main conversation never saw any of it.
+**For each subsequent step**, Claude *resumes* the same agent session via `SendMessage` — not a new Agent call, because spawning a new agent per step is expensive. The agent keeps working through the plan, reading specific line ranges, writing code, and dropping small context files into `reference-docs/` as it learns things worth preserving.
 
-**What you see** in the main conversation: a short skeleton getting checkboxes ticked off, one by one. No re-injected walls of plan text accumulating turn after turn. The context stays clean across the whole build.
+**What you see** in the main conversation: a short line-reference index with checkboxes, one by one. No re-injected walls of plan text accumulating turn after turn. The context stays clean across the whole build.
 
 **When it's done**, your project is built and the main conversation is still lightweight enough to keep going — ask follow-up questions, request changes, start a new feature — without hitting context limits from the plan you approved at the start.

@@ -1,19 +1,37 @@
 #!/usr/bin/env python3
 """plan-plus: PostToolUse hook for ExitPlanMode.
 
-Splits plan into step files.
-Creates skeleton with instructions + step list with paths.
-Injects Step 0: agent refines skeleton with real requirements.
-Reads JSONL only for display name (customTitle) and goals (first user messages).
+Simplified flow:
+  1. Locate the plan file Claude just produced.
+  2. Copy the full original plan to `<plan-dir>/plan-full.md` (the reference copy).
+  3. Clear the on-disk plan file and rewrite it as a compressed line-reference
+     index: a pointer to the copy, a usage hint, then the compressed plan
+     (each `## ` header followed by `(lines N-M)`, body deleted), produced by
+     `compress-to-line-reference.py`.
 """
 import json
 import os
-import re
 import sys
 from pathlib import Path
 
+# Make the sibling compressor script importable regardless of cwd.
+THIS_SCRIPT_DIR = Path(__file__).resolve().parent
+if str(THIS_SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(THIS_SCRIPT_DIR))
 
-def read_stdin():
+# Filename on disk uses a hyphen; import via importlib to handle that.
+import importlib.util as _importlib_util
+
+_compressor_spec = _importlib_util.spec_from_file_location(
+    "compress_to_line_reference_module",
+    str(THIS_SCRIPT_DIR / "compress-to-line-reference.py"),
+)
+_compressor_module = _importlib_util.module_from_spec(_compressor_spec)
+_compressor_spec.loader.exec_module(_compressor_module)
+compress_to_line_reference = _compressor_module.compress_to_line_reference
+
+
+def read_stdin_as_json():
     try:
         return json.loads(sys.stdin.read())
     except (json.JSONDecodeError, ValueError):
@@ -45,289 +63,107 @@ def find_plan_file(hook_input):
     return None
 
 
-def slugify(text):
-    text = re.sub(r'[^\w\s-]', '', text.lower()).strip()
-    text = re.sub(r'[\s_]+', '-', text)
-    text = re.sub(r'-+', '-', text).strip('-')
-    return text[:60] if text else "unnamed"
+USAGE_HINT_LINE = (
+    "to access plan sections read the indicated lines below from this file."
+)
+REFERENCE_DOCS_HINT_LINE = (
+    "Small fine grained additional plan context files should be placed or referenced here:"
+)
 
 
-CONTEXT_HEADERS = {"context", "background", "overview", "summary", "introduction", "about"}
-
-
-def split_plan_into_sections(plan_content):
-    """Split plan on ## headers. Returns (preamble, context_sections, step_sections)."""
-    lines = plan_content.splitlines(keepends=True)
-    preamble_lines = []
-    context_sections = []
-    step_sections = []
-    current_header = None
-    current_lines = []
-
-    for line in lines:
-        if re.match(r'^## ', line):
-            if current_header is not None:
-                header_lower = current_header.lower().strip()
-                if header_lower in CONTEXT_HEADERS:
-                    context_sections.append((current_header, "".join(current_lines).strip()))
-                else:
-                    step_sections.append((current_header, "".join(current_lines).strip()))
-            current_header = line.strip().lstrip('#').strip()
-            current_lines = []
-        elif current_header is None:
-            preamble_lines.append(line)
-        else:
-            current_lines.append(line)
-
-    if current_header is not None:
-        header_lower = current_header.lower().strip()
-        if header_lower in CONTEXT_HEADERS:
-            context_sections.append((current_header, "".join(current_lines).strip()))
-        else:
-            step_sections.append((current_header, "".join(current_lines).strip()))
-
-    return "".join(preamble_lines).strip(), context_sections, step_sections
-
-
-def summarize_section(header, content, max_lines=3):
-    summary_parts = []
-    for line in content.splitlines():
-        stripped = line.strip()
-        if not stripped:
-            continue
-        if stripped.startswith('```') or stripped.startswith('---'):
-            continue
-        if (re.match(r'^[-*]\s', stripped)
-                or re.match(r'^\d+[.)]\s', stripped)
-                or re.match(r'^###\s', stripped)
-                or (len(stripped) < 120 and not stripped.startswith('#'))):
-            clean = stripped.lstrip('-*#').strip()
-            clean = re.sub(r'^\d+[.)]\s*', '', clean).strip()
-            if clean and len(clean) > 5:
-                summary_parts.append(clean)
-                if len(summary_parts) >= max_lines:
-                    break
-
-    if not summary_parts:
-        return header
-    return ", ".join(summary_parts[:max_lines])
-
-
-def write_step_files(sections, steps_dir, abs_steps_dir):
-    step_entries = []
-    for i, (header, content) in enumerate(sections, 1):
-        slug = slugify(header)
-        filename = f"{i:02d}-{slug}.md"
-        filepath = steps_dir / filename
-        filepath.write_text(f"# {header}\n\n{content}\n", encoding="utf-8")
-
-        summary = summarize_section(header, content)
-        step_entries.append(
-            f"{i}. [ ] {header} — {summary}\n"
-            f"   Step requires using agent: plan-plus-executor — details: {abs_steps_dir}/{filename}"
-        )
-    return step_entries
-
-
-def write_step_zero(steps_dir, abs_steps_dir, skeleton_path):
-    content = f"""# Step 0: Update plan skeleton
-
-Skeleton file to edit: {skeleton_path}
-
-Read all step files and context files. Rewrite the skeleton plan file with:
-- A requirements section: stack, architecture, design patterns, constraints, key features
-- Each step described in one sentence or a few tiny bullets
-- Any global-level critical info that deserves to be in the skeleton
-
-Read these before starting:
-- All files in steps/
-- All files in context/
-- plan-full.md for the original complete plan
-
-Keep the skeleton lightweight.
-"""
-    (steps_dir / "00-update-skeleton.md").write_text(content, encoding="utf-8")
-    return (
-        f"0. [ ] Update plan skeleton — read all steps + context, add requirements, refine summaries\n"
-        f"   Step requires using agent: plan-plus-executor — details: {abs_steps_dir}/00-update-skeleton.md"
+def build_line_reference_plan_text(
+    full_plan_copy_absolute_path,
+    reference_docs_directory_absolute_path,
+    executor_agent_session_name,
+    original_plan_text,
+):
+    compressed_plan_text = compress_to_line_reference(original_plan_text)
+    agent_instructions_block = (
+        f"executor agent session: `{executor_agent_session_name}` "
+        f"(subagent_type: plan-plus-executor)\n"
+        f"ALWAYS reuse this one executor agent session for every step — spawning a new "
+        f"agent per step is expensive. Spawn it ONCE on the first step with "
+        f"name=`{executor_agent_session_name}` and subagent_type=`plan-plus-executor`. "
+        f"For every subsequent step use SendMessage(to=\"{executor_agent_session_name}\", ...) "
+        f"to resume the SAME session — do NOT create a new Agent. If the session has expired, "
+        f"spawn a fresh Agent using the SAME name so continuity is preserved.\n"
     )
-
-
-
-def mine_goals(jsonl_path, limit=5):
-    """Extract first few user messages as goals."""
-    messages = []
-    with open(jsonl_path) as f:
-        for line in f:
-            try:
-                entry = json.loads(line)
-                if entry.get("type") != "user" or entry.get("isMeta"):
-                    continue
-                content = entry.get("message", {}).get("content", "")
-                if isinstance(content, list):
-                    parts = [p.get("text", "") for p in content
-                             if isinstance(p, dict) and p.get("type") == "text"]
-                    content = "\n".join(parts)
-                if isinstance(content, str) and content.strip():
-                    if '"tool_use_id"' in content:
-                        continue
-                    messages.append(content.strip()[:300])
-                    if len(messages) >= limit:
-                        break
-            except (json.JSONDecodeError, KeyError):
-                continue
-
-    if not messages:
-        return ""
-
-    lines = ["# Goals (from conversation)"]
-    for i, msg in enumerate(messages, 1):
-        summary = msg.replace("\n", " ").strip()
-        if len(msg) >= 300:
-            summary += "..."
-        lines.append(f"- User msg {i}: {summary}")
-    return "\n".join(lines)
+    header_block = (
+        f"full plan copy: {full_plan_copy_absolute_path}\n"
+        f"{USAGE_HINT_LINE}\n"
+        f"{REFERENCE_DOCS_HINT_LINE} {reference_docs_directory_absolute_path}\n"
+        f"{agent_instructions_block}\n"
+    )
+    return header_block + compressed_plan_text
 
 
 def main():
-    hook_input = read_stdin()
+    hook_input = read_stdin_as_json()
 
-    cwd = hook_input.get("cwd", os.getcwd())
-    transcript_path = hook_input.get("transcript_path", "")
+    current_working_directory = hook_input.get("cwd", os.getcwd())
+    claude_code_session_id = hook_input.get("session_id", "") or ""
+    # Short, stable agent session name so it's easy to type and stays unique per project session.
+    executor_agent_session_name = (
+        f"plan-plus-executor-{claude_code_session_id[:8]}"
+        if claude_code_session_id
+        else "plan-plus-executor-session"
+    )
 
-    plan_file = find_plan_file(hook_input)
-    if not plan_file:
+    plan_file_absolute_path = find_plan_file(hook_input)
+    if not plan_file_absolute_path:
         sys.exit(0)
 
-    plan_path = Path(plan_file)
-    plan_basename = plan_path.stem
-    skeleton_path = str(plan_path)
+    plan_file_path_obj = Path(plan_file_absolute_path)
+    plan_basename_without_extension = plan_file_path_obj.stem
 
-    # Skip if already restructured by plan-plus
+    # Skip if already restructured by plan-plus (idempotent).
     try:
-        existing_content = plan_path.read_text(encoding="utf-8")
-        if "## Instructions" in existing_content and "plan-plus-executor" in existing_content:
+        existing_on_disk_text = plan_file_path_obj.read_text(encoding="utf-8")
+        if existing_on_disk_text.startswith("full plan copy:") and USAGE_HINT_LINE in existing_on_disk_text:
             sys.exit(0)
     except Exception:
-        pass
+        existing_on_disk_text = ""
 
-    plan_dir = Path(cwd) / ".claude" / "plans" / f"plan-plus--{plan_basename}"
-    steps_dir = plan_dir / "steps"
-    context_dir = plan_dir / "context"
-    abs_dir = str(plan_dir)
-    abs_steps = str(steps_dir)
+    plan_documents_directory = (
+        Path(current_working_directory)
+        / ".claude"
+        / "plans"
+        / f"plan-plus--{plan_basename_without_extension}"
+    )
+    plan_documents_directory.mkdir(parents=True, exist_ok=True)
 
-    # Check for existing plan directory and snapshot existing step files
-    existing_plan_dir = plan_dir.exists()
-    existing_step_files = set()
-    if existing_plan_dir and steps_dir.exists():
-        existing_step_files = {f.name for f in steps_dir.iterdir() if f.is_file()}
+    reference_docs_directory = plan_documents_directory / "reference-docs"
+    reference_docs_directory.mkdir(parents=True, exist_ok=True)
 
-    # Create structure
-    steps_dir.mkdir(parents=True, exist_ok=True)
-    context_dir.mkdir(parents=True, exist_ok=True)
+    original_plan_text = plan_file_path_obj.read_text(encoding="utf-8")
 
-    # Read and backup original
-    plan_content = plan_path.read_text(encoding="utf-8")
-    (plan_dir / "plan-full.md").write_text(plan_content, encoding="utf-8")
+    full_plan_copy_path = plan_documents_directory / "plan-full.md"
+    full_plan_copy_path.write_text(original_plan_text, encoding="utf-8")
 
-    # Split plan into sections
-    preamble, context_sections, step_sections = split_plan_into_sections(plan_content)
+    line_reference_plan_text = build_line_reference_plan_text(
+        str(full_plan_copy_path),
+        str(reference_docs_directory),
+        executor_agent_session_name,
+        original_plan_text,
+    )
 
-    # Write preamble + context sections to context/project.md
-    context_parts = []
-    if preamble:
-        context_parts.append(preamble)
-    for header, content in context_sections:
-        context_parts.append(f"## {header}\n\n{content}")
-    if context_parts:
-        (context_dir / "project.md").write_text(
-            "# Project Context\n\n" + "\n\n".join(context_parts) + "\n",
-            encoding="utf-8",
-        )
-
-    # Write step files
-    step_entries = write_step_files(step_sections, steps_dir, abs_steps)
-    step_zero = write_step_zero(steps_dir, abs_steps, skeleton_path)
-
-    # Mine JSONL for goals only
-    if transcript_path and os.path.isfile(transcript_path):
-        try:
-            goals = mine_goals(transcript_path)
-            if goals:
-                (context_dir / "goals.md").write_text(goals, encoding="utf-8")
-        except Exception:
-            pass
-
-    # Build skeleton — requirements left as placeholder for step 0
-    all_steps = [step_zero] + step_entries
-    steps_block = "\n".join(all_steps)
-
-    skeleton = f"""# plan-plus: {plan_basename}
-skeleton: {skeleton_path}
-
-## Instructions
-- If adding new steps to this plan, create a step file alongside the others in steps/ and add a brief reference line here — do not inline step details in this skeleton
-- Use plan-plus-executor agent for each step — pass the step's detail file + relevant context/ files
-- One agent call per step — do not combine multiple steps into a single agent call
-- Agent context is ephemeral — won't bloat this conversation
-- Update context/ files with discoveries as you go
-- Split context files if they exceed ~200 lines
-- Mark steps done in this skeleton as you complete them
-- Do not put verbose content in this skeleton
-
-full plan: {abs_dir}/plan-full.md
-context: {abs_dir}/context/
-steps: {abs_dir}/steps/
-
-## Requirements
-(to be filled in by step 0)
-
-## Steps
-{steps_block}
-"""
-
-    # Write skeleton
-    plan_path.write_text(skeleton, encoding="utf-8")
-
-    # Output
-    n_steps = len(step_sections)
-    existing_warning = ""
-    existing_context = ""
-    if existing_plan_dir:
-        all_step_files = sorted(f.name for f in steps_dir.iterdir() if f.is_file())
-        tree_lines = [f"steps/ ({abs_steps})"]
-        for name in all_step_files:
-            tag = "OLD" if name in existing_step_files else "NEW"
-            tree_lines.append(f"  {'└──' if name == all_step_files[-1] else '├──'} [{tag}] {name}")
-        tree = "\n".join(tree_lines)
-        existing_warning = (
-            f" WARNING: plan directory already existed — new step files added alongside old ones.\n{tree}"
-        )
-        existing_context = (
-            f" NOTE: The plan directory already existed from a previous plan mode exit. "
-            f"Step files marked [OLD] are from the previous plan; [NEW] are from this plan. "
-            f"Ask the user if they want to remove the [OLD] files before proceeding.\n{tree}"
-        )
+    # Clear + rewrite the actual plan doc with the compressed reference.
+    plan_file_path_obj.write_text(line_reference_plan_text, encoding="utf-8")
 
     output = {
         "systemMessage": (
-            f"plan-plus: extracted {n_steps} step details to files, created skeleton. "
-            f"Files: {abs_dir}/"
-            f"{existing_warning}"
+            f"plan-plus: copied full plan to {full_plan_copy_path}; "
+            f"rewrote {plan_file_absolute_path} as a line-reference index."
         ),
         "hookSpecificOutput": {
             "hookEventName": "PostToolUse",
             "additionalContext": (
-                f"plan-plus restructured the plan into {n_steps} step files. "
-                f"Original: {abs_dir}/plan-full.md. "
-                f"Skeleton is now the auto-injected file with instructions at top. "
-                f"Step files in {abs_dir}/steps/. Context in {abs_dir}/context/. "
-                f"START WITH STEP 0: use plan-plus-executor agent to read all step "
-                f"files and context, then refine the skeleton with real requirements "
-                f"(stack, architecture, patterns, constraints) and one sentence or a "
-                f"few tiny bullets per step. Then proceed with step 1."
-                f"{existing_context}"
+                f"plan-plus compressed the plan. The on-disk plan file at "
+                f"{plan_file_absolute_path} now contains a reference header "
+                f"(pointing to {full_plan_copy_path}) followed by the "
+                f"compressed plan: each `## ` header has `(lines N-M)` "
+                f"appended and its body removed. To read a section, open "
+                f"{full_plan_copy_path} at those line numbers."
             ),
         },
     }
