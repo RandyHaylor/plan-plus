@@ -9,6 +9,42 @@
 
 ---
 
+## Before / After (top 10 lines of the on-disk plan file)
+
+**Before plan-plus** — every turn re-injects this kind of verbose prose, and it keeps growing as Claude expands the plan:
+
+```markdown
+# Vue 3 Multiplayer Checkers
+
+## Context
+
+Browser-based multiplayer checkers with Firebase Firestore. Goal: two
+players in separate browsers playing a live game with mandatory jumps,
+king promotion, and basic chat. Pure game logic is isolated behind a
+tiny service layer so it can be unit-tested without Firebase running.
+
+## Stack
+```
+
+**After plan-plus** — the same plan file, rewritten in place:
+
+```markdown
+- plan body (read indicated line ranges): /abs/path/.claude/plans/plan-plus--vue-checkers/plan-full.md
+- fine-grained context files (place/reference here): /abs/path/.claude/plans/plan-plus--vue-checkers/reference-docs
+- executor agent: `plan-plus-executor-a1b2c3d4` (subagent_type: plan-plus-executor)
+  - spawn ONCE on step 1; every later step: SendMessage(to="plan-plus-executor-a1b2c3d4", ...)
+  - never spawn a new Agent per step (expensive)
+  - if session expired, respawn Agent with SAME name to preserve continuity
+
+## Step 0 - Create or copy docs for small chunks of requirements or reference that will be frequently referenced during the project to the reference-docs folder. Do not use the executor agent for this step.
+
+## Context (3-18)
+```
+
+Ten lines in, you've already seen the whole navigation surface for the entire plan — because bodies are gone. The executor agent opens `plan-full.md` at the line range for whatever step it's on, so the full detail is always one `Read` away without ever getting re-injected into the main turn loop.
+
+---
+
 **Smarter plan execution for Claude Code.**
 
 - On ExitPlanMode, copies the full original plan to a plan-docs folder (`plan-full.md`) alongside an empty `reference-docs/` folder for fine-grained context files
