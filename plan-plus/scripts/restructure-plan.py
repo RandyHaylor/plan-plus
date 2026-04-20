@@ -82,7 +82,7 @@ def build_line_reference_plan_text(
     injected_step_zero_header_line = (
         "## Step 0 - Create or copy docs for small chunks of requirements "
         "or reference that will be frequently referenced during the project "
-        "to the reference-docs folder\n\n"
+        "to the reference-docs folder. Do not use the executor agent for this step.\n\n"
     )
     return header_block + injected_step_zero_header_line + compressed_plan_text
 
