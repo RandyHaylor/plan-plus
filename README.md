@@ -85,11 +85,14 @@ Only the compressed index gets injected per turn. The executor agent reads speci
 And the on-disk plan file is rewritten in place as something like:
 
 ```markdown
-full plan copy: /abs/path/.claude/plans/plan-plus--vue-checkers/plan-full.md
-to access plan sections read the indicated lines below from this file.
-Small fine grained additional plan context files should be placed or referenced here: /abs/path/.claude/plans/plan-plus--vue-checkers/reference-docs
-executor agent session: `plan-plus-executor-a1b2c3d4` (subagent_type: plan-plus-executor)
-ALWAYS reuse this one executor agent session for every step — spawning a new agent per step is expensive. Spawn it ONCE on the first step with name=`plan-plus-executor-a1b2c3d4` and subagent_type=`plan-plus-executor`. For every subsequent step use SendMessage(to="plan-plus-executor-a1b2c3d4", ...) to resume the SAME session — do NOT create a new Agent. If the session has expired, spawn a fresh Agent using the SAME name so continuity is preserved.
+- plan body (read indicated line ranges): /abs/path/.claude/plans/plan-plus--vue-checkers/plan-full.md
+- fine-grained context files (place/reference here): /abs/path/.claude/plans/plan-plus--vue-checkers/reference-docs
+- executor agent: `plan-plus-executor-a1b2c3d4` (subagent_type: plan-plus-executor)
+  - spawn ONCE on step 1; every later step: SendMessage(to="plan-plus-executor-a1b2c3d4", ...)
+  - never spawn a new Agent per step (expensive)
+  - if session expired, respawn Agent with SAME name to preserve continuity
+
+## Step 0 - Create or copy docs for small chunks of requirements or reference that will be frequently referenced during the project to the reference-docs folder. Do not use the executor agent for this step.
 
 ## Context (3-18)
 
@@ -104,7 +107,7 @@ ALWAYS reuse this one executor agent session for every step — spawning a new a
 ## Testing (75-90)
 ```
 
-Each `(N-M)` points to the line range in `plan-full.md` — the executor agent opens just those lines when it needs to work on that section.
+Each `(N-M)` points to the line range in `plan-full.md` — the executor agent opens just those lines when it needs to work on that section. The injected `## Step 0` has no line range because it has no body in `plan-full.md`; it's an instruction added by the hook to prime `reference-docs/` before step work begins, and it deliberately opts out of the executor agent.
 
 ---
 
@@ -128,7 +131,7 @@ Each `(N-M)` points to the line range in `plan-full.md` — the executor agent o
 2. Creates `<cwd>/.claude/plans/plan-plus--<basename>/`
 3. Copies the full plan to `<plan-dir>/plan-full.md`
 4. Creates `<plan-dir>/reference-docs/`
-5. Rewrites the on-disk plan file as: a four-line header (full plan path, usage hint, reference-docs hint, executor agent session instructions) + the compressed line-reference index (produced by the self-contained `compress-to-line-reference.py`)
+5. Rewrites the on-disk plan file as: a 6-line bulleted header (plan body path, reference-docs path, executor agent session name + reuse rules), an injected `## Step 0` header instructing Claude to prime `reference-docs/` without using the executor agent, and the compressed line-reference index (produced by the self-contained `compress-to-line-reference.py`)
 6. Emits `additionalContext` pointing Claude at the new structure
 
 **The executor agent** (`plan-plus-executor`) is spawned *once* per project session with name `plan-plus-executor-<sessionid>`. For every subsequent step Claude uses `SendMessage(to="plan-plus-executor-<sessionid>", ...)` to resume that same agent session, handing it the step header name, its `(N-M)` line range in `plan-full.md`, and any relevant `reference-docs/` files. The agent's context stays ephemeral to the main conversation.
@@ -170,7 +173,7 @@ The plan directory is named after the plan file's basename (which Claude Code de
 
 ## Idempotency
 
-If the on-disk plan file already starts with `full plan copy:` (indicating plan-plus has already restructured it), the hook is a no-op. Running plan mode again with a new plan will rewrite it fresh.
+If the on-disk plan file already starts with `- plan body` and contains `executor agent:` (indicating plan-plus has already restructured it), the hook is a no-op. Running plan mode again with a new plan will rewrite it fresh.
 
 ---
 
