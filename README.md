@@ -1,5 +1,14 @@
 # plan-plus
 
+***UPDATE***
+
+- **Plan restructure simplified for consistency.** The on-disk plan file is no longer split into a skeleton + per-step files. Instead, the original plan is copied verbatim to `plan-full.md` and the on-disk file becomes a compressed line-reference index — each `## ` / `### ` header kept with its `(N-M)` line range in `plan-full.md`. Same compression logic runs on every plan regardless of its original structure.
+- **More efficient use of the executor agent.** A session-specific executor name (`plan-plus-executor-<sessionid>`) is baked into the plan header with instructions to reuse that one agent session via `SendMessage` across every step, instead of spawning a fresh agent per step. Agent creation is the dominant per-step cost; reusing one session eliminates it.
+- **New `reference-docs/` folder** next to `plan-full.md` for small fine-grained context files. An injected `## Step 0` instructs Claude to seed it (on the main thread, without the executor agent) before step 1 begins.
+- **Line-reference compressor is now a standalone reusable Python module** (`scripts/compress-to-line-reference.py`) that can be used outside the hook.
+
+---
+
 **Smarter plan execution for Claude Code.**
 
 - On ExitPlanMode, copies the full original plan to a plan-docs folder (`plan-full.md`) alongside an empty `reference-docs/` folder for fine-grained context files
