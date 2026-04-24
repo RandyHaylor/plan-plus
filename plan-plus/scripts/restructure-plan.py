@@ -73,10 +73,9 @@ def build_line_reference_plan_text(
     header_block = (
         f"- plan body (read indicated line ranges): {full_plan_copy_absolute_path}\n"
         f"- fine-grained context files (place/reference here): {reference_docs_directory_absolute_path}\n"
-        f"- executor agent: `{executor_agent_session_name}` (subagent_type: plan-plus-executor)\n"
-        f"  - spawn ONCE on step 1; every later step: SendMessage(to=\"{executor_agent_session_name}\", ...)\n"
-        f"  - never spawn a new Agent per step (expensive)\n"
-        f"  - if session expired, respawn Agent with SAME name to preserve continuity\n"
+        f"- available executor agent (not required): `{executor_agent_session_name}` (subagent_type: plan-plus-executor)\n"
+        f"  - use only if an out-of-context task makes sense for a step; otherwise execute steps directly\n"
+        f"  - if used: spawn ONCE and reuse via SendMessage(to=\"{executor_agent_session_name}\", ...); respawn with the SAME name if the session expires\n"
         f"\n"
     )
     injected_step_zero_header_line = (
