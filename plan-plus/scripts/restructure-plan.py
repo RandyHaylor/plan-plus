@@ -73,15 +73,12 @@ def build_line_reference_plan_text(
     header_block = (
         f"- plan body (read indicated line ranges): {full_plan_copy_absolute_path}\n"
         f"- fine-grained context files (place/reference here): {reference_docs_directory_absolute_path}\n"
-        f"- available executor agent (not required): `{executor_agent_session_name}` (subagent_type: plan-plus-executor)\n"
-        f"  - use only if an out-of-context task makes sense for a step; otherwise execute steps directly\n"
-        f"  - if used: spawn ONCE and reuse via SendMessage(to=\"{executor_agent_session_name}\", ...); respawn with the SAME name if the session expires\n"
         f"\n"
     )
     injected_step_zero_header_line = (
         "## Step 0 - Create or copy docs for small chunks of requirements "
         "or reference that will be frequently referenced during the project "
-        "to the reference-docs folder. Do not use the executor agent for this step.\n\n"
+        "to the reference-docs folder.\n\n"
     )
     return header_block + injected_step_zero_header_line + compressed_plan_text
 
@@ -108,7 +105,7 @@ def main():
     # Skip if already restructured by plan-plus (idempotent).
     try:
         existing_on_disk_text = plan_file_path_obj.read_text(encoding="utf-8")
-        if existing_on_disk_text.startswith("- plan body") and "executor agent:" in existing_on_disk_text:
+        if existing_on_disk_text.startswith("- plan body") and "fine-grained context files" in existing_on_disk_text:
             sys.exit(0)
     except Exception:
         existing_on_disk_text = ""
